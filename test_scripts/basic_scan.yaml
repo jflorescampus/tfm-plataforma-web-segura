@@ -1,0 +1,54 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# basic_scan.yaml
+# Script de validación de seguridad mínima obligatoria antes de cualquier
+# despliegue en entornos de staging o producción.
+#
+# Uso:    python3 security_gate.py TARGET --script basic_scan.yaml
+# Tiempo: ~4-6 minutos en red local
+# ─────────────────────────────────────────────────────────────────────────────
+
+name: 'Basic Security Scan'
+version: '2.0'
+description: >
+  Validación mínima de seguridad obligatoria antes de cada despliegue.
+  Cubre: superficie de ataque (puertos 1-65535), configuración SSH y TLS
+  mediante scripts NSE, vulnerabilidades web conocidas (Nikto) y CVEs
+  detectables con plantillas Nuclei.
+
+tests:
+
+  - tool: nmap
+    description: >
+      Escaneo completo TCP (1-65535) con detección de versiones (-sV)
+      y scripts NSE de seguridad: 'vuln' detecta CVEs en servicios activos,
+      'ssl-cert' valida la configuración TLS, 'ssh-auth-methods' detecta
+      si SSH acepta autenticación por contraseña (hallazgo HIGH).
+    params:
+      ports: '1-65535'
+      args:  '-sV -sC -T4 --script vuln,ssl-cert,ssh-auth-methods'
+      # -sV: Service Version Detection
+      # -sC: Scripts NSE por defecto
+      # -T4: Timing agresivo (apropiado para red local)
+
+  - tool: nikto
+    description: >
+      Auditoría de configuración del servidor web Apache. Detecta:
+      cabeceras HTTP de seguridad ausentes (HSTS, X-Frame-Options, CSP,
+      X-Content-Type-Options), versión del servidor expuesta en cabeceras,
+      archivos sensibles accesibles y configuraciones inseguras.
+
+  - tool: nuclei
+    description: >
+      Detección de CVEs conocidos y misconfiguraciones con plantillas
+      de la comunidad ProjectDiscovery. Las plantillas por defecto
+      cubren severidades CRITICAL y HIGH.
+
+thresholds:
+  block_on: ['CRITICAL', 'HIGH']   # Exit 1: abortar el pipeline
+  warn_on:  ['MEDIUM']             # Exit 0: permitido con aviso
+  info_on:  ['LOW', 'INFO']        # Solo informativo
+
+report:
+  formats:            ['json', 'html']
+  output_dir:         'reports/'
+  include_raw_output: false

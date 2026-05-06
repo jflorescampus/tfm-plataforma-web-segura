@@ -1,0 +1,65 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# post_incident.yaml
+# Script de análisis exhaustivo ejecutado DESPUÉS de un incidente en producción.
+# Objetivo: identificar qué prueba habría detectado la vulnerabilidad explotada
+# e incorporarla a basic_scan.yaml para prevenir la recurrencia.
+#
+# Uso:    python3 security_gate.py TARGET --script post_incident.yaml
+# Tiempo: ~10-15 minutos
+# ─────────────────────────────────────────────────────────────────────────────
+
+name: 'Post-Incident Deep Analysis'
+version: '1.0'
+description: >
+  Auditoría exhaustiva post-incidente para identificar la causa raíz
+  y mejorar la detección temprana en futuros despliegues.
+
+tests:
+
+  - tool: nmap
+    description: >
+      Escaneo completo con scripts NSE adicionales: 'http-headers' extrae
+      todas las cabeceras HTTP para verificar las de seguridad; 'banner'
+      captura los banners de servicios para comparar con el estado
+      pre-incidente y detectar modificaciones.
+    params:
+      ports: '1-65535'
+      args: >-
+        -sV -sC -T4
+        --script vuln,ssl-cert,ssh-auth-methods,http-headers,banner
+
+  - tool: nikto
+    description: >
+      Auditoría web ampliada con todos los plugins activos y sin
+      restricción de tiempo de ejecución.
+
+  - tool: nuclei
+    description: >
+      Detección ampliada: 'sqli' verifica todos los parámetros de entrada
+      (vector explotado en el incidente); 'xss' detecta XSS reflected
+      y stored; 'default-logins' verifica credenciales por defecto;
+      'misconfig' detecta misconfiguraciones; 'exposures' detecta
+      archivos de configuración con credenciales accesibles públicamente.
+    params:
+      templates: 'sqli,xss,lfi,rce,default-logins,misconfig,exposures'
+
+  - tool: mysql_exposure_check
+    description: >
+      Verificación explícita de que el puerto 3306 (MySQL) NO es accesible
+      desde la red externa. Prueba añadida tras constatar que MySQL
+      estaba expuesto en el estado inseguro inicial del servidor.
+
+  - tool: ssh_password_auth_check
+    description: >
+      Verificación activa de que SSH rechaza autenticación por contraseña.
+      Complementa al NSE ssh-auth-methods con una prueba funcional.
+
+thresholds:
+  block_on: ['CRITICAL', 'HIGH', 'MEDIUM']   # Umbral más estricto post-incidente
+  warn_on:  ['LOW']
+  info_on:  ['INFO']
+
+report:
+  formats:            ['json', 'html']
+  output_dir:         'reports/'
+  include_raw_output: true   # Incluir salidas brutas para el análisis forense
